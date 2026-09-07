@@ -46,6 +46,7 @@ from .const import (
     CONF_DIAGNOSTICS_ON_EXCEPTION,
     CONF_DIAGNOSTICS_OPTIONS,
     CONF_EXTRA_BATTERY,
+    CONF_LOCAL_NAME,
     CONF_LOG_BLEAK,
     CONF_LOG_CONNECTION,
     CONF_LOG_ENCRYPTED_PAYLOADS,
@@ -53,6 +54,7 @@ from .const import (
     CONF_LOG_MESSAGES,
     CONF_LOG_PACKETS,
     CONF_LOG_PAYLOADS,
+    CONF_MANUFACTURER_DATA,
     CONF_PACKET_VERSION,
     CONF_PREFERRED_PROXY,
     CONF_PREFERRED_PROXY_TIMEOUT,
@@ -425,7 +427,8 @@ class EFBLEConfigFlow(ConfigFlow, domain=DOMAIN):
         # relying on it round-tripping through user_input can produce an entry
         # without a user ID that then fails to set up
         entry_data[CONF_USER_ID] = self._user_id
-        entry_data["local_name"] = self._local_names.get(device.address, None)
+        entry_data[CONF_LOCAL_NAME] = self._local_names.get(device.address, None)
+        entry_data[CONF_MANUFACTURER_DATA] = device.manufacturer_data.hex()
         entry_data.pop("login", None)
 
         if CONF_EXTRA_BATTERY not in entry_data:

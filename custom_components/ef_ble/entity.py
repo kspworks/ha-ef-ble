@@ -39,8 +39,8 @@ class EcoflowEntity(Entity):
 
     @property
     def available(self) -> bool:
-        """Return True if device is connected"""
-        return self._device.is_connected
+        """Return True if device is connected and authenticated"""
+        return self._device.is_authenticated
 
     class SkipWrite:
         """Sentinel value for skipping write in update callback"""
@@ -89,7 +89,21 @@ class EcoflowEntity(Entity):
             self._device.register_state_update_callback(state_callback, prop)
         for prop in self._write_state_props:
             self._device.register_callback(self.async_write_ha_state, prop)
+
+        self.async_on_remove(
+            self._device.on_connection_state_change(self._connection_changed)
+        )
+        self.async_on_remove(self._device.on_disconnect(self._device_disconnected))
+
         await super().async_added_to_hass()
+
+    @callback
+    def _connection_changed(self, state: Any) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _device_disconnected(self, exc: Any) -> None:
+        self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         for prop, state_callback in self._update_callbacks:

@@ -1,11 +1,9 @@
 """The unofficial EcoFlow BLE devices integration"""
 
-import asyncio
 import logging
 from collections.abc import Callable
 from functools import partial
 
-import homeassistant.helpers.issue_registry as ir
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import (
     BluetoothCallbackMatcher,
@@ -15,7 +13,7 @@ from homeassistant.components.bluetooth import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryError,
     ConfigEntryNotReady,
@@ -24,37 +22,26 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from . import eflib
-from .config_flow import CONF_COLLECT_PACKETS, ConfLogOptions, LogOptions, PacketVersion
+from .config_flow import CONF_COLLECT_PACKETS, ConfLogOptions, LogOptions
+from .connection_manager import DeviceConnectionManager
 from .const import (
     CONF_ADVANCED_CONNECTION_OPTIONS,
     CONF_BLUEZ_START_NOTIFY,
     CONF_COLLECT_PACKETS_AMOUNT,
-    CONF_CONNECTION_DELAY,
     CONF_CONNECTION_TIMEOUT,
     CONF_DIAGNOSTICS_ON_EXCEPTION,
     CONF_DIAGNOSTICS_OPTIONS,
     CONF_EXTRA_BATTERY,
-    CONF_PACKET_VERSION,
-    CONF_PREFERRED_PROXY,
-    CONF_PREFERRED_PROXY_TIMEOUT,
+    CONF_LOCAL_NAME,
+    CONF_MANUFACTURER_DATA,
     CONF_UPDATE_PERIOD,
     CONF_USER_ID,
-    DEFAULT_CONNECTION_DELAY,
     DEFAULT_CONNECTION_TIMEOUT,
-    DEFAULT_PREFERRED_PROXY_TIMEOUT,
     DEFAULT_UPDATE_PERIOD,
     DOMAIN,
-    NO_PREFERRED_PROXY,
 )
-from .eflib.connection import (
-    BleakError,
-    Connection,
-    ConnectionTimeout,
-    MaxConnectionAttemptsReached,
-)
-from .eflib.exceptions import AuthErrors, UnsupportedBluetoothProtocol
+from .eflib.connection import Connection
 from .eflib.logging_util import ConnectionLog
-from .proxy import connect_gate, wait_for_preferred_proxy
 
 PLATFORMS: list[Platform] = [
     Platform.BUTTON,
@@ -74,6 +61,7 @@ ConfigEntryNotReady = partial(ConfigEntryNotReady, translation_domain=DOMAIN)
 ConfigEntryError = partial(ConfigEntryError, translation_domain=DOMAIN)
 
 _REAPPEAR_CALLBACKS_KEY = f"{DOMAIN}_reappear_callbacks"
+_CONNECTION_MANAGERS_KEY = f"{DOMAIN}_connection_managers"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> bool:
@@ -82,11 +70,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> bo
 
     address = entry.data.get(CONF_ADDRESS)
     user_id = entry.data.get(CONF_USER_ID)
-    merged_options = entry.data | entry.options
-    update_period = merged_options.get(CONF_UPDATE_PERIOD, DEFAULT_UPDATE_PERIOD)
-    packet_version = PacketVersion.from_str(
-        entry.data.get(CONF_PACKET_VERSION, PacketVersion.V3)
-    )
 
     if address is None or user_id is None:
         # Returning False here would fail setup without any log or UI message, so
@@ -98,141 +81,97 @@ async def async_setup_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> bo
             },
         )
 
-    if not bluetooth.async_address_present(hass, address):
-        _register_reappear_callback(hass, entry, address)
-        raise ConfigEntryNotReady(translation_key="device_not_present")
-
+    device = _async_get_device(hass, entry, address)
     _cancel_reappear_callback(hass, entry)
-
-    _LOGGER.debug("Connecting Device")
-    device: eflib.DeviceBase | None = getattr(entry, "runtime_data", None)
-    discovery_info = bluetooth.async_last_service_info(hass, address, connectable=True)
-
-    if device is None:
-        device = eflib.NewDevice(discovery_info.device, discovery_info.advertisement)
-        if device is None:
-            raise ConfigEntryNotReady(translation_key="unable_to_create_device")
-
-        entry.runtime_data = device
-    elif discovery_info is not None:
-        device.update_ble_device(discovery_info.device)
-
-    diag_options = merged_options.get(CONF_DIAGNOSTICS_OPTIONS, {})
-    packet_collection_enabled = diag_options.get(
-        CONF_COLLECT_PACKETS, eflib.is_unsupported(device)
-    )
-    diagnostics_on_exception = diag_options.get(CONF_DIAGNOSTICS_ON_EXCEPTION, False)
-
-    advanced = merged_options.get(CONF_ADVANCED_CONNECTION_OPTIONS, {})
-    timeout = advanced.get(CONF_CONNECTION_TIMEOUT, DEFAULT_CONNECTION_TIMEOUT)
-    connection_delay = advanced.get(CONF_CONNECTION_DELAY, DEFAULT_CONNECTION_DELAY)
-    preferred_proxy = advanced.get(CONF_PREFERRED_PROXY) or NO_PREFERRED_PROXY
-    options = Connection.Options(
-        timeout=timeout,
-        bluez_start_notify=advanced.get(CONF_BLUEZ_START_NOTIFY, False),
-    )
-    issue_id = f"{entry.entry_id}_max_connection_attempts"
-
-    preference_wait = (
-        advanced.get(CONF_PREFERRED_PROXY_TIMEOUT, DEFAULT_PREFERRED_PROXY_TIMEOUT)
-        if preferred_proxy != NO_PREFERRED_PROXY
-        else 0.0
-    )
-
-    try:
-        async with connect_gate(
-            hass, device.name, connection_delay, timeout, preference_wait
-        ):
-            if preference_wait:
-                await wait_for_preferred_proxy(
-                    hass, address, device.name, preferred_proxy, preference_wait
-                )
-            await (
-                device.with_update_period(update_period)
-                .with_logging_options(ConfLogOptions.from_config(merged_options))
-                .with_disabled_reconnect()
-                .with_packet_version(packet_version.to_num())
-                .with_enabled_packet_diagnostics(packet_collection_enabled)
-                .with_diagnostics_on_exception(diagnostics_on_exception)
-                .with_connection_options(options)
-                .connect(
-                    user_id=user_id,
-                    max_attempts=0 if eflib.is_solar_only(device) else None,
-                )
-            )
-        async with asyncio.timeout(timeout):
-            state = await device.wait_until_authenticated_or_error(raise_on_error=True)
-    except (
-        ConnectionTimeout,
-        BleakError,
-        TimeoutError,
-        UnsupportedBluetoothProtocol,
-    ) as e:
-        await device.disconnect()
-        raise ConfigEntryNotReady(
-            translation_key="could_not_connect",
-            translation_placeholders={"time": str(timeout), "error_msg": str(e)},
-        ) from e
-    except AuthErrors.BaseException as e:
-        raise ConfigEntryNotReady(translation_key="authentication_failed") from e
-    except MaxConnectionAttemptsReached as e:
-        await device.disconnect()
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
-            severity=ir.IssueSeverity.ERROR,
-            translation_key="max_connection_attempts_reached",
-            translation_placeholders={
-                "device_name": device.name,
-                "attempts": str(e.attempts),
-            },
-        )
-        raise ConfigEntryError(
-            translation_key="could_not_connect_no_retry",
-            translation_placeholders={"attempts": str(e.attempts)},
-        ) from e
-    except Exception as e:
-        _LOGGER.exception("Unknown error")
-        await device.disconnect()
-        raise ConfigEntryNotReady(
-            translation_key="unknown_error", translation_placeholders={"error": str(e)}
-        ) from e
-    else:
-        if not state.authenticated:
-            await device.disconnect()
-            raise ConfigEntryNotReady(
-                translation_key="failed_after_successful_connection",
-                translation_placeholders={"last_state": state},
-            )
-    ir.async_delete_issue(hass, DOMAIN, issue_id)
+    _async_cache_advertisement(hass, entry, device)
 
     _LOGGER.debug("Creating entities")
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    _LOGGER.debug("Setup done")
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 
-    def _on_disconnect(exc: Exception | type[Exception] | None):
-        async def _disconnect_and_reload():
-            hass.config_entries.async_schedule_reload(entry.entry_id)
+    manager = DeviceConnectionManager(hass, entry, device)
+    hass.data.setdefault(_CONNECTION_MANAGERS_KEY, {})[entry.entry_id] = manager
+    manager.async_start()
 
-        hass.async_create_task(_disconnect_and_reload())
-
-    entry.async_on_unload(device.on_disconnect(_on_disconnect))
-
+    _LOGGER.debug("Setup done")
     return True
+
+
+@callback
+def _async_get_device(
+    hass: HomeAssistant, entry: DeviceConfigEntry, address: str
+) -> eflib.DeviceBase:
+    """Return the device for this entry, creating it if this is the first setup"""
+    device: eflib.DeviceBase | None = getattr(entry, "runtime_data", None)
+    discovery_info = bluetooth.async_last_service_info(hass, address, connectable=True)
+
+    if device is not None:
+        if discovery_info is not None:
+            device.update_ble_device(discovery_info.device)
+        return device
+
+    if discovery_info is not None:
+        device = eflib.NewDevice(discovery_info.device, discovery_info.advertisement)
+    elif (cached := _cached_manufacturer_data(entry)) is not None:
+        try:
+            device = eflib.NewDeviceFromCache(
+                address, entry.data.get(CONF_LOCAL_NAME), cached
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Could not recreate %s from its cached advertisement", address
+            )
+            device = None
+    else:
+        _register_reappear_callback(hass, entry, address)
+        raise ConfigEntryNotReady(translation_key="device_not_present")
+
+    if device is None:
+        raise ConfigEntryNotReady(translation_key="unable_to_create_device")
+
+    entry.runtime_data = device
+    return device
+
+
+def _cached_manufacturer_data(entry: DeviceConfigEntry) -> bytes | None:
+    """Advertisement stored for this entry, if it holds a usable one"""
+    if (manufacturer_data := entry.data.get(CONF_MANUFACTURER_DATA)) is None:
+        return None
+
+    try:
+        return bytes.fromhex(manufacturer_data)
+    except ValueError:
+        _LOGGER.warning(
+            "Ignoring unreadable cached advertisement data %r", manufacturer_data
+        )
+        return None
+
+
+@callback
+def _async_cache_advertisement(
+    hass: HomeAssistant, entry: DeviceConfigEntry, device: eflib.DeviceBase
+) -> None:
+    manufacturer_data = device.manufacturer_data.hex()
+    if entry.data.get(CONF_MANUFACTURER_DATA) == manufacturer_data:
+        return
+
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, CONF_MANUFACTURER_DATA: manufacturer_data}
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: DeviceConfigEntry) -> bool:
     """Unload a config entry."""
     _cancel_reappear_callback(hass, entry)
+
+    managers: dict[str, DeviceConnectionManager] = hass.data.get(
+        _CONNECTION_MANAGERS_KEY, {}
+    )
+    if (manager := managers.pop(entry.entry_id, None)) is not None:
+        await manager.async_stop()
+
     device = entry.runtime_data
-    try:
-        await device.disconnect()
-    except Exception:
-        _LOGGER.exception("Error disconnecting device during unload, continuing")
     device.with_logging_options(LogOptions.no_options())
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 

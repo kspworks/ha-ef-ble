@@ -1,7 +1,7 @@
 from homeassistant.core import HomeAssistant
 
 from . import DeviceConfigEntry
-from .const import CONF_DIAGNOSTICS_ENCRYPT, CONF_DIAGNOSTICS_OPTIONS
+from .const import CONF_DIAGNOSTICS_ENCRYPT, CONF_DIAGNOSTICS_OPTIONS, CONF_LOCAL_NAME
 from .eflib.encryption import Session
 
 
@@ -14,7 +14,7 @@ async def async_get_config_entry_diagnostics(
 
     session = Session() if encrypt else None
 
-    diagnostics: dict = {"local_name": entry.data.get("local_name", None)}
+    diagnostics: dict = {"local_name": entry.data.get(CONF_LOCAL_NAME, None)}
     diagnostics |= device.diagnostics.build_diagnostics_dict(session)
 
     if device.diagnostics.is_enabled:

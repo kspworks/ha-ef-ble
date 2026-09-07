@@ -284,32 +284,11 @@
     }
   },
   "exceptions": {
-    "unknown_error": {
-      "message": "未知错误: {error}"
-    },
     "unable_to_create_device": {
       "message": "无法创建 EcoFlow BLE 设备"
     },
     "device_not_present": {
       "message": "EcoFlow BLE 设备不存在"
-    },
-    "could_not_connect": {
-      "message": "{time} 秒后仍无法连接到设备，请检查日志。\n错误信息: {error_msg}"
-    },
-    "error_after_connected": {
-      "message": "设备在能够认证之前发生错误"
-    },
-    "authentication_failed": {
-      "message": "认证失败"
-    },
-    "could_not_reconnect_after_max_attempts": {
-      "message": "失去连接 {attempts} 次后仍无法重新连接。"
-    },
-    "could_not_connect_no_retry": {
-      "message": "{attempts} 次尝试后仍无法连接到设备"
-    },
-    "failed_after_successful_connection": {
-      "message": "设备已连接但未进入认证程序，上一个状态: {last_state}"
     },
     "missing_address_or_user_id": {
       "message": "存储的配置缺少设备数据（{missing}）。请删除该设备并重新添加以修复配置条目。"
@@ -318,11 +297,18 @@
   "issues": {
     "max_connection_attempts_reached": {
       "title": "{attempts} 次尝试后仍无法连接到 {device_name}",
-      "description": "{attempts} 次尝试后仍无法连接到 {device_name}。请查看日志了解更多信息。\n\n为避免日志 spam，自动重试已被禁用，需要手动重新加载集成。成功连接后此错误会清除。"
+      "description": "{attempts} 次尝试后仍无法连接到 {device_name}。请查看日志了解更多信息。\n\n集成会在后台继续以较低频率重试，以免刷屏日志。成功连接后此错误会清除。"
+    },
+    "authentication_failed": {
+      "title": "无法与 {device_name} 完成认证",
+      "description": "{device_name} 拒绝了已保存的用户 ID。请重新配置该设备，并输入该设备所注册的 EcoFlow 账户的用户 ID。\n\n集成会在后台继续重试。成功连接后此错误会清除。"
     }
   },
   "entity": {
     "button": {
+      "power_off": {
+        "name": "关机"
+      },
       "unpause_solar": {
         "name": "恢复太阳能"
       }
@@ -1058,6 +1044,13 @@
           "intelligent_schedule": "智能调度"
         }
       },
+      "energy_monitoring_mode": {
+        "name": "能源监测",
+        "state": {
+          "semi_automated": "半自动监测",
+          "smart_meter": "智能电表监测"
+        }
+      },
       "operating_submode": {
         "name": "运行子模式",
         "state": {
@@ -1215,6 +1208,17 @@
     }
   },
   "selector": {
+    "ecoflow_region": {
+      "options": {
+        "auto": "自动（邮箱使用 api.ecoflow.com，手机号使用 api-cn）",
+        "api": "api.ecoflow.com（全球 / 美国）",
+        "api-e": "api-e.ecoflow.com（欧洲）",
+        "api-a": "api-a.ecoflow.com（亚洲 / 中东非洲）",
+        "api-j": "api-j.ecoflow.com（日本）",
+        "api-r": "api-r.ecoflow.com（俄罗斯）",
+        "api-cn": "api-cn.ecoflow.com（中国 - 仅限手机号）"
+      }
+    },
     "preferred_proxy": {
       "options": {
         "any": "任何可用的代理"

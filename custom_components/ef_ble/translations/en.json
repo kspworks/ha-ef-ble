@@ -284,32 +284,11 @@
     }
   },
   "exceptions": {
-    "unknown_error": {
-      "message": "Unknown error: {error}"
-    },
     "unable_to_create_device": {
       "message": "EcoFlow BLE Device unable to create"
     },
     "device_not_present": {
       "message": "EcoFlow BLE device not present"
-    },
-    "could_not_connect": {
-      "message": "Could not connect to the device after {time} seconds, check the logs.\nError message: {error_msg}"
-    },
-    "error_after_connected": {
-      "message": "Error occured before device could authenticate"
-    },
-    "authentication_failed": {
-      "message": "Authentication failed"
-    },
-    "could_not_reconnect_after_max_attempts": {
-      "message": "Could not reconnect after losing connection {attempts} times."
-    },
-    "could_not_connect_no_retry": {
-      "message": "Could not connect to device after {attempts} unsuccessful attempts"
-    },
-    "failed_after_successful_connection": {
-      "message": "Device connected but did not get to auth procedure, last state: {last_state}"
     },
     "missing_address_or_user_id": {
       "message": "Stored configuration is missing the device {missing}. Remove the device and add it again to repair the configuration entry."
@@ -318,7 +297,11 @@
   "issues": {
     "max_connection_attempts_reached": {
       "title": "Could not connect to {device_name} after {attempts} unsuccessful attempts",
-      "description": "Failed to connect to {device_name} after {attempts} unsuccessful attempts. Check the logs for more info.\n\nAutomatic retry was disabled to not spam logs, integration has to be reloaded manually. This error clears after successful connection."
+      "description": "Failed to connect to {device_name} after {attempts} unsuccessful attempts. Check the logs for more info.\n\nThe integration keeps retrying in the background, at a slower rate to not spam the logs. This error clears after a successful connection."
+    },
+    "authentication_failed": {
+      "title": "Could not authenticate with {device_name}",
+      "description": "{device_name} refused the stored user ID. Reconfigure the device and enter the user ID of the EcoFlow account the device is registered to.\n\nThe integration keeps retrying in the background. This error clears after a successful connection."
     }
   },
   "entity": {

@@ -127,12 +127,23 @@ class DeviceBase(abc.ABC):
         """Full device serial number parsed from manufacturer data."""
         return self._sn
 
+    @property
+    def manufacturer_data(self) -> bytes:
+        """Raw manufacturer data of the advertisement this device was created from."""
+        return self._manufacturer_data
+
     def isValid(self):
         return self._sn is not None
 
     @property
     def is_connected(self) -> bool:
         return self._conn is not None and self._conn.is_connected
+
+    @property
+    def is_authenticated(self) -> bool:
+        """True once the link is up and the auth handshake completed."""
+        state = self.connection_state
+        return state is not None and state.authenticated
 
     def update_ble_device(self, ble_dev: BLEDevice):
         self._ble_dev = ble_dev

@@ -50,6 +50,29 @@ def NewDevice(ble_dev: BLEDevice, adv_data: AdvertisementData) -> DeviceBase | N
     return unsupported.UnsupportedDevice(ble_dev, adv_data, sn.decode("ASCII"))
 
 
+def NewDeviceFromCache(
+    address: str, local_name: str | None, manufacturer_data: bytes
+) -> DeviceBase | None:
+    """Return Device rebuilt from persisted advertisement data, without a live scan result"""
+    try:
+        ble_dev = BLEDevice(address, local_name, None)
+    except TypeError:
+        # bleak < 1.0 also requires an rssi argument
+        ble_dev = BLEDevice(address, local_name, None, -127)  # pyright: ignore[reportCallIssue]
+
+    adv_data = AdvertisementData(
+        local_name=local_name,
+        manufacturer_data={DeviceBase.MANUFACTURER_KEY: manufacturer_data},
+        service_data={},
+        service_uuids=[],
+        tx_power=None,
+        rssi=-127,
+        platform_data=(),
+    )
+
+    return NewDevice(ble_dev, adv_data)
+
+
 def get_protobuf_device(device: DeviceBase | None) -> "ProtobufProps | None":
     from .props import ProtobufProps  # noqa: PLC0415
 
@@ -81,6 +104,7 @@ def get_controls[E: controls.ControlType](
 __all__ = [
     "DeviceBase",
     "NewDevice",
+    "NewDeviceFromCache",
     "controls",
     "get_controls",
     "get_fixed_length_coding_device",

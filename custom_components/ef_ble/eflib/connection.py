@@ -7,7 +7,7 @@ import struct
 import time
 import traceback
 from collections import deque
-from collections.abc import Awaitable, Callable, Collection, Coroutine, MutableSequence
+from collections.abc import Awaitable, Callable, Collection, Coroutine
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from functools import cached_property
@@ -326,14 +326,6 @@ class Connection:
     def disconnect_log(self) -> list[dict[str, Any]]:
         """Recent BLE client disconnect outcomes, for diagnostics"""
         return list(self._disconnect_log)
-
-    def _add_listener(self, collection: MutableSequence[Callable], listener: Callable):
-        collection.append(listener)
-
-        def _unlisten():
-            collection.remove(value=listener)
-
-        return _unlisten
 
     def on_disconnect(self, listener: DisconnectListener):
         """
